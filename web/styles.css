@@ -143,3 +143,4 @@ dialog code { background: color-mix(in srgb, var(--ink) 10%, transparent); paddi
   background: #2b3038; color: #fff; padding: 10px 16px; border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0,0,0,.35); z-index: 10;
 }
+.topbar #stats { color: #9aa0a6; white-space: nowrap; }

@@ -21,15 +21,18 @@ const credentials = new AdbWebCredentialStore("Pixel Control");
 
 // ---- settings ------------------------------------------------------------------------
 const SETTINGS_KEY = "pixel-control-settings";
-const defaults = { quality: "high", stayAwake: true, screenOff: false, audio: false };
+const defaults = { quality: "sharp", stayAwake: true, screenOff: false };
 let settings = { ...defaults };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch {}
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {} };
+// Full resolution (1280×2856 on a Pixel 9 Pro) is beyond many laptop video decoders and
+// makes Windows fall back to slow software decoding, so the default caps the long side.
 const QUALITY = {
-  high: { maxSize: 0, videoBitRate: 16_000_000, maxFps: 60 },     // full resolution
-  balanced: { maxSize: 1920, videoBitRate: 8_000_000, maxFps: 60 },
-  light: { maxSize: 1280, videoBitRate: 4_000_000, maxFps: 30 },
+  sharp: { maxSize: 1920, videoBitRate: 8_000_000, maxFps: 60 },
+  light: { maxSize: 1280, videoBitRate: 4_000_000, maxFps: 60 },
+  full: { maxSize: 0, videoBitRate: 12_000_000, maxFps: 60 },
 };
+if (!QUALITY[settings.quality]) settings.quality = defaults.quality; // older saved choices
 
 // ---- state ---------------------------------------------------------------------------
 let adb = null;            // Adb
@@ -175,10 +178,13 @@ async function startMirroring() {
     ? new WebGLVideoFrameRenderer(canvas)
     : new BitmapVideoFrameRenderer(canvas);
   decoder = new WebCodecsVideoDecoder({ codec: video.metadata.codec, renderer });
-  videoW = video.metadata.width || 0;
-  videoH = video.metadata.height || 0;
-  decoder.sizeChanged(({ width, height }) => { videoW = width; videoH = height; layout(); });
+  // Touches must carry exactly the size of the video the phone is sending, or the phone
+  // ignores them — so take it from the stream itself (it also changes on rotation).
+  const setSize = (w, h) => { if (w && h) { videoW = w; videoH = h; layout(); showStats(); } };
+  setSize(video.width || video.metadata.width, video.height || video.metadata.height);
+  video.sizeChanged(({ width, height }) => setSize(width, height));
   video.stream.pipeTo(decoder.writable).catch((e) => console.warn("video ended", e));
+  startStats();
 
   $("device-name").textContent = video.metadata.deviceName || adb.banner?.model || "Phone";
   show("phone");
@@ -195,7 +201,27 @@ function sink(fn) {
   return new globalThis.WritableStream({ write: fn });
 }
 
+// Small readout in the top bar: picture size and frames per second.
+let statsTimer = 0, lastFrames = 0, fps = 0;
+function showStats() {
+  const el = $("stats");
+  if (!el) return;
+  el.textContent = videoW ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""}` : "";
+}
+function startStats() {
+  clearInterval(statsTimer);
+  lastFrames = 0; fps = 0;
+  statsTimer = setInterval(() => {
+    if (!decoder) return;
+    const n = decoder.framesRendered;
+    fps = Math.max(0, n - lastFrames);
+    lastFrames = n;
+    showStats();
+  }, 1000);
+}
+
 async function teardown() {
+  clearInterval(statsTimer);
   const c = client, d = decoder, a = adb;
   client = null; decoder = null; controller = null; adb = null;
   try { await c?.close(); } catch {}
@@ -280,15 +306,28 @@ canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   touch(e, AndroidMotionEventAction.Down, id);
 });
+// Moves are sent at most once per screen refresh (latest position only). Sending every
+// tiny movement floods the USB link and makes the phone lag behind the mouse.
+const pendingMoves = new Map(); // browser pointerId → latest move event
+let moveFrame = 0;
+function flushMoves() {
+  moveFrame = 0;
+  for (const [pid, ev] of pendingMoves) {
+    const id = activePointers.get(pid);
+    if (id !== undefined) touch(ev, AndroidMotionEventAction.Move, id);
+  }
+  pendingMoves.clear();
+}
 canvas.addEventListener("pointermove", (e) => {
-  const id = activePointers.get(e.pointerId);
-  if (id === undefined) return;
+  if (!activePointers.has(e.pointerId)) return;
   e.preventDefault();
-  for (const ev of e.getCoalescedEvents?.() || [e]) touch(ev, AndroidMotionEventAction.Move, id);
+  pendingMoves.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY, pressure: e.pressure, pointerType: e.pointerType });
+  if (!moveFrame) moveFrame = requestAnimationFrame(flushMoves);
 });
 const endPointer = (e) => {
   const id = activePointers.get(e.pointerId);
   if (id === undefined) return;
+  if (pendingMoves.has(e.pointerId)) flushMoves();
   activePointers.delete(e.pointerId);
   touch(e, e.type === "pointercancel" ? AndroidMotionEventAction.Cancel : AndroidMotionEventAction.Up, id);
 };
@@ -297,17 +336,23 @@ canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // Mouse wheel / touchpad → scroll.
+// Wheel/touchpad scrolling is added up and sent once per screen refresh.
+let scrollAcc = null, scrollFrame = 0;
 canvas.addEventListener("wheel", (e) => {
   if (!controller || !videoW) return;
   e.preventDefault();
   const unit = e.deltaMode === 1 ? 1 / 3 : e.deltaMode === 2 ? 3 : 1 / 100;
-  const clamp = (v) => Math.max(-1, Math.min(1, v));
-  controller.injectScroll({
-    ...toPhone(e),
-    scrollX: clamp(-e.deltaX * unit),
-    scrollY: clamp(-e.deltaY * unit),
-    buttons: 0,
-  }).catch(() => {});
+  if (!scrollAcc) scrollAcc = { x: 0, y: 0, at: null };
+  scrollAcc.x += -e.deltaX * unit;
+  scrollAcc.y += -e.deltaY * unit;
+  scrollAcc.at = { clientX: e.clientX, clientY: e.clientY };
+  if (!scrollFrame) scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    const a = scrollAcc; scrollAcc = null;
+    if (!a || !controller) return;
+    const clamp = (v) => Math.max(-1, Math.min(1, v));
+    controller.injectScroll({ ...toPhone(a.at), scrollX: clamp(a.x), scrollY: clamp(a.y), buttons: 0 }).catch(() => {});
+  });
 }, { passive: false });
 
 // ---- keyboard ------------------------------------------------------------------------

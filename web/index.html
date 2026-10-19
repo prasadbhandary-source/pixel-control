@@ -39,9 +39,9 @@
         <summary>Options</summary>
         <label>Picture quality
           <select id="quality">
-            <option value="high">Sharpest (full resolution)</option>
-            <option value="balanced">Balanced</option>
-            <option value="light">Lighter (older or slow computers)</option>
+            <option value="sharp">Sharp and smooth (recommended)</option>
+            <option value="light">Fastest (if it still feels slow)</option>
+            <option value="full">Full resolution (can lag on many laptops)</option>
           </select>
         </label>
         <label class="check"><input type="checkbox" id="opt-awake"> Keep the phone awake while connected</label>
@@ -63,6 +63,7 @@
     <header class="topbar">
       <span class="dot" aria-hidden="true"></span>
       <span id="device-name">Phone</span>
+      <span id="stats" class="muted small" title="Picture size and frames per second"></span>
       <span class="spacer"></span>
       <span class="muted small hint">Click = tap · Right-click = Back · Scroll = swipe · Type to enter text · Drop files to send them</span>
       <button id="phone-help-btn" class="icon" title="Help"><svg viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg></button>
