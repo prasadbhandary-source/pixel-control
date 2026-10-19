@@ -21,7 +21,7 @@ const credentials = new AdbWebCredentialStore("Pixel Control");
 
 // ---- settings ------------------------------------------------------------------------
 const SETTINGS_KEY = "pixel-control-settings";
-const defaults = { quality: "sharp", stayAwake: true, screenOff: false };
+const defaults = { quality: "sharp", stayAwake: true, screenOff: false, gpuDecode: false };
 let settings = { ...defaults };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch {}
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {} };
@@ -177,10 +177,14 @@ async function startMirroring() {
   const renderer = WebGLVideoFrameRenderer.isSupported
     ? new WebGLVideoFrameRenderer(canvas)
     : new BitmapVideoFrameRenderer(canvas);
-  hwDecode = await hardwareDecodeAvailable();
+  // Software decoding by default: some laptop video chips (notably Snapdragon ones) hold
+  // back many frames before showing them, which shows up as seconds of lag and 1–2 fps.
+  // At this picture size the processor decodes in a few milliseconds per frame.
+  hwDecode = !!settings.gpuDecode && await decodeSupported("prefer-hardware");
+  const swOk = await decodeSupported("prefer-software");
   decoder = new WebCodecsVideoDecoder({
     codec: video.metadata.codec, renderer,
-    hardwareAcceleration: hwDecode ? "prefer-hardware" : "no-preference",
+    hardwareAcceleration: hwDecode ? "prefer-hardware" : swOk ? "prefer-software" : "no-preference",
   });
   // Touches must carry exactly the size of the video the phone is sending, or the phone
   // ignores them — so take it from the stream itself (it also changes on rotation).
@@ -208,18 +212,17 @@ function sink(fn) {
 // Is the computer's graphics chip able to decode the phone's video? If not, the browser
 // decodes in software, which is what makes mirroring lag (common in emulated browsers).
 let hwDecode = false;
-async function hardwareDecodeAvailable() {
+async function decodeSupported(hardwareAcceleration) {
   try {
     if (!globalThis.VideoDecoder?.isConfigSupported) return false;
     const r = await VideoDecoder.isConfigSupported({
       codec: "avc1.640028", codedWidth: 1080, codedHeight: 1920,
-      hardwareAcceleration: "prefer-hardware", optimizeForLatency: true,
+      hardwareAcceleration, optimizeForLatency: true,
     });
     return !!r.supported;
   } catch { return false; }
 }
 
-let warnedSoftware = false;
 // An x64 browser running on an ARM (Snapdragon) PC reports an x86 platform in its UA data.
 let uaArch = "";
 navigator.userAgentData?.getHighEntropyValues?.(["architecture"]).then((v) => { uaArch = v.architecture || ""; }).catch(() => {});
@@ -230,12 +233,9 @@ function showStats() {
   const el = $("stats");
   if (!el) return;
   el.textContent = videoW
-    ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""} · ${hwDecode ? "hardware decoding" : "software decoding (slow)"}${uaArch ? ` · ${uaArch} browser` : ""}`
+    ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""} · ${hwDecode ? "graphics-chip decoding" : "processor decoding"}${uaArch ? ` · ${uaArch} browser` : ""}`
     : "";
-  if (!hwDecode && !warnedSoftware && videoW) {
-    warnedSoftware = true;
-    toast("This browser isn’t using your graphics chip to decode the video, so mirroring will lag. Install Pixel Control from Microsoft Edge instead, or try Options → Fastest.", 12000);
-  }
+
 }
 function startStats() {
   clearInterval(statsTimer);
@@ -574,6 +574,8 @@ qualitySel.value = settings.quality;
 qualitySel.addEventListener("change", () => { settings.quality = qualitySel.value; saveSettings(); });
 $("opt-awake").checked = !!settings.stayAwake;
 $("opt-awake").addEventListener("change", (e) => { settings.stayAwake = e.target.checked; saveSettings(); });
+$("opt-gpu").checked = !!settings.gpuDecode;
+$("opt-gpu").addEventListener("change", (e) => { settings.gpuDecode = e.target.checked; saveSettings(); });
 $("opt-screenoff").checked = !!settings.screenOff;
 $("opt-screenoff").addEventListener("change", (e) => { settings.screenOff = e.target.checked; saveSettings(); });
 
