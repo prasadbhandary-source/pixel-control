@@ -2,7 +2,7 @@
   "name": "Pixel Control",
   "short_name": "Pixel Control",
   "description": "See and control your Android phone from this computer over USB",
-  "id": "./",
+  "id": "/pixel-control/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
