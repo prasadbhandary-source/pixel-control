@@ -125,7 +125,7 @@ function explain(e) {
   const msg = String(e?.message || e);
   if (msg === "NO_WEBUSB") return "This browser can’t talk to USB devices. Open this app in Microsoft Edge or Google Chrome.";
   if (msg === "BUSY" || /claimed|busy|Unable to claim|Access denied/i.test(msg))
-    return "The phone is in use by another program (usually adb, scrcpy or Android Studio). Close them — or run “adb kill-server” — then unplug and replug the phone and try again.";
+    return "The phone is already being used by another window. Close every other Pixel Control window or tab (in Chrome too) and anything else that uses the phone over USB (scrcpy, Android Studio), then unplug and replug the phone and click Connect phone.";
   if (/No device selected|NotFoundError/i.test(msg)) return "";
   if (/AbortError|cancel/i.test(msg)) return "";
   if (/NetworkError|disconnected|transferIn|transferOut/i.test(msg))
