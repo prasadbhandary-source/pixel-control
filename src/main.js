@@ -177,7 +177,11 @@ async function startMirroring() {
   const renderer = WebGLVideoFrameRenderer.isSupported
     ? new WebGLVideoFrameRenderer(canvas)
     : new BitmapVideoFrameRenderer(canvas);
-  decoder = new WebCodecsVideoDecoder({ codec: video.metadata.codec, renderer });
+  hwDecode = await hardwareDecodeAvailable();
+  decoder = new WebCodecsVideoDecoder({
+    codec: video.metadata.codec, renderer,
+    hardwareAcceleration: hwDecode ? "prefer-hardware" : "no-preference",
+  });
   // Touches must carry exactly the size of the video the phone is sending, or the phone
   // ignores them — so take it from the stream itself (it also changes on rotation).
   const setSize = (w, h) => { if (w && h) { videoW = w; videoH = h; layout(); showStats(); } };
@@ -201,12 +205,37 @@ function sink(fn) {
   return new globalThis.WritableStream({ write: fn });
 }
 
-// Small readout in the top bar: picture size and frames per second.
+// Is the computer's graphics chip able to decode the phone's video? If not, the browser
+// decodes in software, which is what makes mirroring lag (common in emulated browsers).
+let hwDecode = false;
+async function hardwareDecodeAvailable() {
+  try {
+    if (!globalThis.VideoDecoder?.isConfigSupported) return false;
+    const r = await VideoDecoder.isConfigSupported({
+      codec: "avc1.640028", codedWidth: 1080, codedHeight: 1920,
+      hardwareAcceleration: "prefer-hardware", optimizeForLatency: true,
+    });
+    return !!r.supported;
+  } catch { return false; }
+}
+
+let warnedSoftware = false;
+// An x64 browser running on an ARM (Snapdragon) PC reports an x86 platform in its UA data.
+let uaArch = "";
+navigator.userAgentData?.getHighEntropyValues?.(["architecture"]).then((v) => { uaArch = v.architecture || ""; }).catch(() => {});
+
+// Small readout in the top bar: picture size, frames per second and decoder type.
 let statsTimer = 0, lastFrames = 0, fps = 0;
 function showStats() {
   const el = $("stats");
   if (!el) return;
-  el.textContent = videoW ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""}` : "";
+  el.textContent = videoW
+    ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""} · ${hwDecode ? "hardware decoding" : "software decoding (slow)"}${uaArch ? ` · ${uaArch} browser` : ""}`
+    : "";
+  if (!hwDecode && !warnedSoftware && videoW) {
+    warnedSoftware = true;
+    toast("This browser isn’t using your graphics chip to decode the video, so mirroring will lag. Install Pixel Control from Microsoft Edge instead, or try Options → Fastest.", 12000);
+  }
 }
 function startStats() {
   clearInterval(statsTimer);
