@@ -1,0 +1,146 @@
+:root {
+  --bg: #f3f4f6;
+  --panel: #ffffff;
+  --ink: #15181d;
+  --muted: #5d6573;
+  --line: #dde1e7;
+  --accent: #1a73e8;
+  --accent-ink: #ffffff;
+  --stage: #0f1115;
+  --rail: #1b1f26;
+  --rail-ink: #e6e9ee;
+  --rail-hover: #2a303a;
+  --ok: #34a853;
+  --warn: #b26a00;
+  --error: #c5221f;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111317;
+    --panel: #1b1e24;
+    --ink: #e8eaed;
+    --muted: #9aa0a6;
+    --line: #2e333b;
+    --accent: #8ab4f8;
+    --accent-ink: #0b1a30;
+    --warn: #fdd663;
+    --error: #f28b82;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+body[data-view="phone"] { background: var(--stage); overflow: hidden; }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { opacity: .55; cursor: default; }
+
+.primary {
+  background: var(--accent); color: var(--accent-ink);
+  border: 0; border-radius: 999px; padding: 8px 18px; font-weight: 600;
+}
+.primary.big { padding: 14px 28px; font-size: 17px; }
+.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; }
+
+/* ---- start screen ---- */
+#start { min-height: 100%; display: grid; place-items: center; padding: 32px 16px; }
+.start-inner {
+  width: min(560px, 100%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  padding: 28px; display: grid; gap: 16px;
+}
+.brand { display: flex; gap: 14px; align-items: center; }
+.brand img { border-radius: 14px; }
+.brand h1 { margin: 0; font-size: 24px; }
+.brand p { margin: 2px 0 0; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.status {
+  margin: 0; padding: 10px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.status[data-kind="wait"] { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
+.status[data-kind="warn"] { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.status[data-kind="error"] { background: color-mix(in srgb, var(--error) 14%, transparent); color: var(--error); }
+.options { border-top: 1px solid var(--line); padding-top: 12px; }
+.options summary { cursor: pointer; font-weight: 600; }
+.options label { display: grid; gap: 4px; margin-top: 10px; }
+.options label.check { display: flex; gap: 8px; align-items: center; }
+.options select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+#install-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; justify-items: start; }
+#install-card p { margin: 0; }
+#version { margin: 0; }
+
+/* ---- connected ---- */
+#phone { position: fixed; inset: 0; display: flex; flex-direction: column; color: var(--rail-ink); }
+.topbar {
+  height: 40px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 8px 0 14px; background: var(--rail); border-bottom: 1px solid #000;
+}
+.topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.topbar #device-name { font-weight: 600; }
+.topbar .spacer { flex: 1; }
+.topbar .hint { color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.text-btn { background: transparent; border: 1px solid #3a414c; border-radius: 8px; padding: 4px 12px; color: var(--rail-ink); }
+.text-btn:hover { background: var(--rail-hover); }
+
+.body { flex: 1; display: flex; min-height: 0; }
+#stage {
+  flex: 1; min-width: 0; position: relative; display: grid; place-items: center;
+  background: var(--stage); outline: none;
+}
+#screen {
+  display: block; border-radius: 18px; background: #000;
+  box-shadow: 0 0 0 1px #2a2f37, 0 10px 40px rgba(0,0,0,.5);
+  touch-action: none; cursor: default; user-select: none;
+}
+#stage:focus-visible #screen { box-shadow: 0 0 0 2px var(--accent), 0 10px 40px rgba(0,0,0,.5); }
+.drop-hint {
+  position: absolute; inset: 12px; border: 2px dashed #8ab4f8; border-radius: 16px;
+  display: none; place-items: center; text-align: center; font-size: 18px; font-weight: 600;
+  background: rgba(15,17,21,.75); color: #e8eaed; pointer-events: none;
+}
+#stage.drop .drop-hint { display: grid; }
+
+.rail {
+  width: 56px; flex: none; background: var(--rail); border-left: 1px solid #000;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; overflow-y: auto;
+}
+.rail hr { width: 28px; border: 0; border-top: 1px solid #333a45; margin: 6px 0; }
+.icon {
+  width: 40px; height: 40px; flex: none; display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: 10px; color: inherit;
+}
+.icon svg { width: 22px; height: 22px; fill: currentColor; }
+.icon:hover { background: var(--rail-hover); }
+.icon:active { background: #353c48; }
+.icon.toggle[aria-pressed="true"] { background: #8ab4f8; color: #0b1a30; }
+.topbar .icon { width: 32px; height: 32px; }
+.topbar .icon svg { width: 20px; height: 20px; }
+
+@media (max-width: 700px) { .topbar .hint { display: none; } }
+
+/* ---- dialog + toast ---- */
+dialog {
+  width: min(620px, calc(100% - 32px)); border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel); color: var(--ink); padding: 22px 26px;
+}
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog h2 { font-size: 17px; margin: 14px 0 6px; }
+dialog h2:first-child { margin-top: 0; }
+dialog ol, dialog ul { padding-left: 20px; margin: 0; display: grid; gap: 4px; }
+dialog code { background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px 5px; border-radius: 4px; }
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 32px));
+  background: #2b3038; color: #fff; padding: 10px 16px; border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35); z-index: 10;
+}
+.topbar #stats { color: #9aa0a6; white-space: nowrap; }

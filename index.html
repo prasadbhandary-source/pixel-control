@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data: blob:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14171c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <title>Pixel Control</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Start: not connected -->
+  <main id="start">
+    <div class="start-inner">
+      <div class="brand">
+        <img src="icon-192.png" alt="" width="56" height="56">
+        <div>
+          <h1>Pixel Control</h1>
+          <p class="muted">See and control your phone from this computer, over USB.</p>
+        </div>
+      </div>
+
+      <button id="connect-btn" class="primary big">Connect phone</button>
+      <p id="status" class="status" hidden></p>
+
+      <ol class="steps">
+        <li>Plug your Pixel into this computer with a USB cable.</li>
+        <li>Click <b>Connect phone</b>, pick your Pixel in the list, then click <b>Connect</b>.</li>
+        <li>On the phone, tap <b>Allow</b> on “Allow USB debugging?” — tick <b>Always allow from this computer</b> so you only see it once.</li>
+      </ol>
+      <p class="muted small">After the first time, it connects by itself whenever you open the app with the phone plugged in.
+        First time? USB debugging must be on — <button id="help-btn" class="link">how to turn it on</button>.</p>
+
+      <details class="options">
+        <summary>Options</summary>
+        <label>Picture quality
+          <select id="quality">
+            <option value="sharp">Sharp and smooth (recommended)</option>
+            <option value="light">Fastest (if it still feels slow)</option>
+            <option value="full">Full resolution (can lag on many laptops)</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="opt-awake"> Keep the phone awake while connected</label>
+        <label class="check"><input type="checkbox" id="opt-gpu"> Decode video on the graphics chip (can add delay on some laptops)</label>
+        <label class="check"><input type="checkbox" id="opt-bitmap"> Use simple drawing instead of WebGL (try if the picture is slow)</label>
+        <label class="check"><input type="checkbox" id="opt-screenoff"> Turn the phone’s own screen off when connected (saves battery)</label>
+        <p class="muted small">Changes apply the next time you connect.</p>
+      </details>
+
+      <div id="install-card" hidden>
+        <b>Install Pixel Control on this computer</b>
+        <p class="muted small">Gets its own window and a Start menu icon.</p>
+        <button id="install-btn" class="primary">Install</button>
+      </div>
+      <p id="version" class="muted small"></p>
+    </div>
+  </main>
+
+  <!-- Connected: phone screen -->
+  <section id="phone" hidden>
+    <header class="topbar">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="device-name">Phone</span>
+      <span id="stats" class="muted small" title="Picture size and frames per second"></span>
+      <span class="spacer"></span>
+      <span class="muted small hint">Click = tap · Right-click = Back · Scroll = swipe · Type to enter text · Drop files to send them</span>
+      <button id="phone-help-btn" class="icon" title="Help"><svg viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg></button>
+      <button id="disconnect-btn" class="text-btn" title="Stop controlling the phone">Disconnect</button>
+    </header>
+
+    <div class="body">
+      <div id="stage" tabindex="0" aria-label="Phone screen. Click to tap, type to send keys.">
+        <canvas id="screen"></canvas>
+        <div class="drop-hint">Drop to send to the phone<br><span class="small">APK files are installed</span></div>
+      </div>
+
+      <nav class="rail" aria-label="Phone buttons">
+        <button id="back-btn" class="icon" title="Back (right-click or Esc)"><svg viewBox="0 0 24 24"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg></button>
+        <button id="home-btn" class="icon" title="Home (middle-click)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <button id="recents-btn" class="icon" title="Recent apps"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <hr>
+        <button id="volup-btn" class="icon" title="Volume up"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></button>
+        <button id="voldown-btn" class="icon" title="Volume down"><svg viewBox="0 0 24 24"><path d="M18.5 12A4.5 4.5 0 0 0 16 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg></button>
+        <button id="power-btn" class="icon" title="Power button (lock / wake)"><svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7A6.995 6.995 0 0 1 7.58 6.58L6.17 5.17A8.932 8.932 0 0 0 3 12a9 9 0 0 0 18 0c0-2.74-1.23-5.18-3.17-6.83z"/></svg></button>
+        <hr>
+        <button id="notif-btn" class="icon" title="Pull down notifications"><svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></button>
+        <button id="settings-panel-btn" class="icon" title="Quick settings"><svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></button>
+        <button id="rotate-btn" class="icon" title="Rotate"><svg viewBox="0 0 24 24"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77a1.49 1.49 0 0 0-2.12 0L1.75 8.11a1.49 1.49 0 0 0 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29A10.487 10.487 0 0 1 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/></svg></button>
+        <button id="screen-btn" class="icon toggle" aria-pressed="false" title="Turn the phone’s own screen off"><svg viewBox="0 0 24 24"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z"/></svg></button>
+        <hr>
+        <button id="shot-btn" class="icon" title="Save a screenshot"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg></button>
+        <button id="file-btn" class="icon" title="Send files to the phone (APKs are installed)"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg></button>
+        <button id="full-btn" class="icon" title="Full screen"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+        <input id="file-input" type="file" multiple hidden>
+      </nav>
+    </div>
+  </section>
+
+  <dialog id="help">
+    <h2>Setting up your Pixel (one time)</h2>
+    <ol>
+      <li>On the phone open <b>Settings → About phone</b> and tap <b>Build number</b> 7 times until it says you’re a developer.</li>
+      <li>Go to <b>Settings → System → Developer options</b> and turn on <b>USB debugging</b>.</li>
+      <li>Plug the phone in, click <b>Connect phone</b>, choose it, and tap <b>Allow</b> on the phone.</li>
+    </ol>
+    <h2>Using it</h2>
+    <ul>
+      <li><b>Click</b> to tap, <b>drag</b> to swipe, <b>mouse wheel</b> to scroll. On a touchscreen you can pinch and use two fingers.</li>
+      <li><b>Right-click</b> or <b>Esc</b> = Back. <b>Middle-click</b> = Home.</li>
+      <li><b>Type</b> on your keyboard to enter text in the phone. <b>Ctrl+V</b> pastes what you copied on the computer. Text you copy on the phone lands in the computer’s clipboard.</li>
+      <li><b>Drag files</b> onto the phone screen to copy them to its Download folder. <b>APK</b> files are installed instead.</li>
+    </ul>
+    <h2>If it won’t connect</h2>
+    <ul>
+      <li><b>“In use by another program”</b>: close Android Studio, scrcpy or anything else using adb (or run <code>adb kill-server</code>), then unplug and replug the phone.</li>
+      <li><b>Pixel not in the list</b>: check USB debugging is on, try another cable or port, and unlock the phone.</li>
+      <li><b>Stuck at “tap Allow”</b>: unlock the phone and look for the prompt. If it never shows, unplug, replug, and in Developer options try <b>Revoke USB debugging authorizations</b>.</li>
+    </ul>
+    <p class="muted small">Sound stays on the phone. Pixel Control uses the open-source scrcpy and Tango projects.</p>
+    <button id="help-close" class="primary">Close</button>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
