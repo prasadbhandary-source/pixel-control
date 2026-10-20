@@ -11,7 +11,7 @@ import {
 import {
   BitmapVideoFrameRenderer, WebCodecsVideoDecoder, WebGLVideoFrameRenderer,
 } from "@yume-chan/scrcpy-decoder-webcodecs";
-import { ReadableStream } from "@yume-chan/stream-extra";
+import { ReadableStream, TransformStream } from "@yume-chan/stream-extra";
 
 const $ = (id) => document.getElementById(id);
 const SERVER_VERSION = "3.3.3";
@@ -21,7 +21,7 @@ const credentials = new AdbWebCredentialStore("Pixel Control");
 
 // ---- settings ------------------------------------------------------------------------
 const SETTINGS_KEY = "pixel-control-settings";
-const defaults = { quality: "sharp", stayAwake: true, screenOff: false, gpuDecode: false };
+const defaults = { quality: "sharp", stayAwake: true, screenOff: false, gpuDecode: false, renderer: "webgl" };
 let settings = { ...defaults };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch {}
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {} };
@@ -174,9 +174,17 @@ async function startMirroring() {
 
   const video = await client.videoStream;
   const canvas = $("screen");
-  const renderer = WebGLVideoFrameRenderer.isSupported
-    ? new WebGLVideoFrameRenderer(canvas)
-    : new BitmapVideoFrameRenderer(canvas);
+  const useGl = settings.renderer !== "bitmap" && WebGLVideoFrameRenderer.isSupported;
+  rendererName = useGl ? "WebGL" : "bitmap";
+  const renderer = useGl ? new WebGLVideoFrameRenderer(canvas) : new BitmapVideoFrameRenderer(canvas);
+  // Time each draw, for the diagnostics readout.
+  const draw = renderer.draw.bind(renderer);
+  renderer.draw = async (frame) => {
+    const t = performance.now();
+    await draw(frame);
+    meter.drawMs += performance.now() - t;
+    meter.draws++;
+  };
   // Software decoding by default: some laptop video chips (notably Snapdragon ones) hold
   // back many frames before showing them, which shows up as seconds of lag and 1–2 fps.
   // At this picture size the processor decodes in a few milliseconds per frame.
@@ -191,7 +199,15 @@ async function startMirroring() {
   const setSize = (w, h) => { if (w && h) { videoW = w; videoH = h; layout(); showStats(); } };
   setSize(video.width || video.metadata.width, video.height || video.metadata.height);
   video.sizeChanged(({ width, height }) => setSize(width, height));
-  video.stream.pipeTo(decoder.writable).catch((e) => console.warn("video ended", e));
+  // Count what arrives over USB before decoding, for the diagnostics readout.
+  video.stream
+    .pipeThrough(new TransformStream({
+      transform(packet, controller) {
+        if (packet.type === "data") { meter.rxFrames++; meter.rxBytes += packet.data.byteLength; meter.pending.push(performance.now()); }
+        controller.enqueue(packet);
+      },
+    }))
+    .pipeTo(decoder.writable).catch((e) => console.warn("video ended", e));
   startStats();
 
   $("device-name").textContent = video.metadata.deviceName || adb.banner?.model || "Phone";
@@ -227,24 +243,54 @@ async function decodeSupported(hardwareAcceleration) {
 let uaArch = "";
 navigator.userAgentData?.getHighEntropyValues?.(["architecture"]).then((v) => { uaArch = v.architecture || ""; }).catch(() => {});
 
-// Small readout in the top bar: picture size, frames per second and decoder type.
-let statsTimer = 0, lastFrames = 0, fps = 0;
+// Diagnostics readout in the top bar, updated every second:
+//   in    = frames (and data rate) arriving from the phone over USB
+//   shown = frames drawn on screen;  draw = average time to draw one frame
+//   behind = frames received but not yet shown (a growing number means decoding can't keep up)
+let statsTimer = 0, rendererName = "";
+const meter = { rxFrames: 0, rxBytes: 0, decoded: 0, pending: [], decodeMs: 0, draws: 0, drawMs: 0 };
+let view = { inFps: 0, mbps: 0, shownFps: 0, drawMs: 0, decodeMs: 0, behind: 0 };
+// Watch the browser's video decoder: how many frames it holds and how long each takes.
+if (globalThis.VideoDecoder && !globalThis.VideoDecoder.__metered) {
+  const Base = globalThis.VideoDecoder;
+  class MeteredVideoDecoder extends Base {
+    constructor(init) {
+      const output = init.output;
+      super({ ...init, output: (frame) => {
+        meter.decoded++;
+        const t = meter.pending.shift();
+        if (t !== undefined) meter.decodeMs += performance.now() - t;
+        output(frame);
+      } });
+    }
+  }
+  MeteredVideoDecoder.__metered = true;
+  globalThis.VideoDecoder = MeteredVideoDecoder;
+}
 function showStats() {
   const el = $("stats");
   if (!el) return;
-  el.textContent = videoW
-    ? `${videoW}×${videoH}${fps ? ` · ${fps} fps` : ""} · ${hwDecode ? "graphics-chip decoding" : "processor decoding"}${uaArch ? ` · ${uaArch} browser` : ""}`
-    : "";
-
+  if (!videoW) { el.textContent = ""; return; }
+  el.textContent = `${videoW}×${videoH} · in ${view.inFps} fps, ${view.mbps.toFixed(1)} Mbps · decode ${view.decodeMs.toFixed(0)} ms, held ${view.behind} · shown ${view.shownFps} fps, draw ${view.drawMs.toFixed(0)} ms`
+    + ` · ${hwDecode ? "graphics-chip" : "processor"} decoding · ${rendererName}${uaArch ? ` · ${uaArch}` : ""}`;
 }
 function startStats() {
   clearInterval(statsTimer);
-  lastFrames = 0; fps = 0;
+  let last = { rx: 0, bytes: 0, dec: 0, decMs: 0, draws: 0, ms: 0, at: performance.now() };
+  Object.assign(meter, { rxFrames: 0, rxBytes: 0, decoded: 0, pending: [], decodeMs: 0, draws: 0, drawMs: 0 });
   statsTimer = setInterval(() => {
     if (!decoder) return;
-    const n = decoder.framesRendered;
-    fps = Math.max(0, n - lastFrames);
-    lastFrames = n;
+    const now = performance.now(), dt = (now - last.at) / 1000;
+    const draws = meter.draws - last.draws;
+    view = {
+      inFps: Math.round((meter.rxFrames - last.rx) / dt),
+      mbps: ((meter.rxBytes - last.bytes) * 8) / 1e6 / dt,
+      shownFps: Math.round(draws / dt),
+      drawMs: draws ? (meter.drawMs - last.ms) / draws : 0,
+      decodeMs: meter.decoded > last.dec ? (meter.decodeMs - last.decMs) / (meter.decoded - last.dec) : view.decodeMs,
+      behind: meter.pending.length,
+    };
+    last = { rx: meter.rxFrames, bytes: meter.rxBytes, dec: meter.decoded, decMs: meter.decodeMs, draws: meter.draws, ms: meter.drawMs, at: now };
     showStats();
   }, 1000);
 }
@@ -574,6 +620,8 @@ qualitySel.value = settings.quality;
 qualitySel.addEventListener("change", () => { settings.quality = qualitySel.value; saveSettings(); });
 $("opt-awake").checked = !!settings.stayAwake;
 $("opt-awake").addEventListener("change", (e) => { settings.stayAwake = e.target.checked; saveSettings(); });
+$("opt-bitmap").checked = settings.renderer === "bitmap";
+$("opt-bitmap").addEventListener("change", (e) => { settings.renderer = e.target.checked ? "bitmap" : "webgl"; saveSettings(); });
 $("opt-gpu").checked = !!settings.gpuDecode;
 $("opt-gpu").addEventListener("change", (e) => { settings.gpuDecode = e.target.checked; saveSettings(); });
 $("opt-screenoff").checked = !!settings.screenOff;
